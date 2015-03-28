@@ -51,6 +51,12 @@ var animators = []; // all animators
 var animations = []; // running animators
 var timeZero;
 
+// Change notes: 28/03/2015 
+//  color property on animator determined by element attribute eg fill
+// .freezed > .final ?? still to determine impact
+// observation: normalize appears to act on every calculation - better to normalize start and finish only?
+// ... except where necessary
+
 /**
  * If declarative animations are not supported,
  * the document animations are fetched and registered.
@@ -59,7 +65,9 @@ function initSMIL() {
 
     // test for internet explorer
 
-    if (document.implementation.hasFeature(smil3ns, "3.0")) {return;}
+    if (document.implementation.hasFeature(smil3ns, "3.0")) {
+        return;
+    }
 
 
     /** checking for nested svg?
@@ -99,36 +107,36 @@ function smile(document) {
             elAnimators[index] = animator;
         }
         node_animations[i]["animators"] = elAnimators;
-       // var id = anim.getAttribute("id");
-       // if (id) {
-       //     id2anim[id] = anim;
-        }
-    }
-
-function getTargets(anim) {
-    if (anim.hasAttribute("select"))
-        return select(anim);
-    var href = anim.getAttributeNS(xlinkns, "href");
-    if (href !== null && href !== "")
-        return [document.getElementById(href.substring(1))];
-    else {
-        var target = anim.parentNode;
-        if (target.localName == "item" && (target.namespaceURI == timesheetns || target.namespaceURI == smil3ns))
-            return select(target);
-        return [target];
+        // var id = anim.getAttribute("id");
+        // if (id) {
+        //     id2anim[id] = anim;
     }
 }
-// timesheets dropped
-//function select(element) {
-//    var selector = element.getAttribute("select");
-//    var parent = element.parentNode;
- //   while (parent && parent.nodeType == 1) {
-//        if (parent.localName == "item" && (parent.namespaceURI == timesheetns || parent.namespaceURI == smil3ns))
- //           selector = parent.getAttribute("select") + " " + selector;
-  //      parent = parent.parentNode;
- //   }
-//    return document.querySelectorAll(selector);
-//}
+
+function getTargets(anim) {
+        if (anim.hasAttribute("select"))
+            return select(anim);
+        var href = anim.getAttributeNS(xlinkns, "href");
+        if (href !== null && href !== "")
+            return [document.getElementById(href.substring(1))];
+        else {
+            var target = anim.parentNode;
+            if (target.localName == "item" && (target.namespaceURI == timesheetns || target.namespaceURI == smil3ns))
+                return select(target);
+            return [target];
+        }
+    }
+    // timesheets dropped
+    //function select(element) {
+    //    var selector = element.getAttribute("select");
+    //    var parent = element.parentNode;
+    //   while (parent && parent.nodeType == 1) {
+    //        if (parent.localName == "item" && (parent.namespaceURI == timesheetns || parent.namespaceURI == smil3ns))
+    //           selector = parent.getAttribute("select") + " " + selector;
+    //      parent = parent.parentNode;
+    //   }
+    //    return document.querySelectorAll(selector);
+    //}
 
 function getEventTargetsById(id, ref) {
     var element = null;
@@ -239,6 +247,12 @@ Animator.prototype = {
      * Starts the animation.
      * I mean the very beginning of it.
      * Not called when repeating.
+     *
+     * from, to, by and value are assigned to animVals array
+     * assigned values are normalised first
+     *
+     *routine restructured so color normalisation routine is active before existing normalisation call
+     *
      */
     begin: function (offset) {
         var i = 0,
@@ -247,6 +261,7 @@ Animator.prototype = {
             return;
         if (this.running)
             this.finish();
+        // First timer
         if (offset !== null && offset >= 0) {
             var me = this;
             var myself = this.begin;
@@ -262,41 +277,65 @@ Animator.prototype = {
             if (this.startTime < timeZero)
                 return;
         }
+        // ? Remove this animation from the running array
         this.stop();
         this.running = true;
         var initVal = this.getCurVal();
         this.realInitVal = initVal;
         // TODO
-        // I should get the inherited value here (getPresentationAttribute is not supported)
+        // I should get the Inherited value here (getPresentationAttribute is not supported)
+
         if (!initVal && propDefaults[this.attributeName])
             initVal = propDefaults[this.attributeName];
-        if (this.anim.nodeName == "set")
-            this.step(this.to);
-        this.iteration = 0;
 
+        if (this.attributeName.match(/^(fill|stroke|stop-color|flood-color|lighting-color)$/)) {
+            /**  set normalisation routine for color values
+             properties that take colour values ‘fill’, ‘stroke’, 
+             ‘stop-color’, ‘flood-color’, ‘lighting-color’
+             http://www.w3.org/TR/SVG/propidx.html
+             */
+            this.color();
+        }
+
+        // process animation types - create array animVals: base and destination(s)
+
+        // SET
+        if (this.anim.nodeName == "set")
+        // set accepts only single final value
+            this.step(this.normalize(this.to));
+        this.iteration = 0;
+        // VALUES
         if (this.values) {
+            // array asignment by default - type coercion
             this["animVals"] = this.values.split(";");
             for (i = 0; i < this["animVals"].length; ++i)
-                this["animVals"][i] = this["animVals"][i].trim();
-        } else {
+                this["animVals"][i] = this.normalize(this["animVals"][i].trim());
+        }
+        // FROM | TO | BY
+        else {
             this["animVals"] = [];
             if (this.from)
-                this["animVals"][0] = this.from;
+                this["animVals"][0] = this.normalize(this.from);
             else
-                this["animVals"][0] = initVal;
+            // default FROM value
+            // ? regular checks for this["animVals"][0] assign by default value where initVal is null/undefined
+                this["animVals"][0] = this.normalize(initVal);
+            // BY
             if (this.by && this["animVals"][0])
                 this["animVals"][1] = this.add(this.normalize(this["animVals"][0]), this.normalize(this.by));
             else
-                this["animVals"][1] = this.to;
+            // TO
+                this["animVals"][1] = this.normalize(this.to);
         }
+        // Final position
         if (this["animVals"][this["animVals"].length - 1]) {
-            this.freezed = this["animVals"][this["animVals"].length - 1];
+            this.final = this["animVals"][this["animVals"].length - 1];
 
             if (this["animVals"][0]) {
-                if ((this["animVals"][0].substring(0, 1) == "#" || colors[this["animVals"][0]] || (this["animVals"][0].length > 5 && this["animVals"][0].trim().substring(0, 4) == "rgb(")) &&
-                    (this.freezed.substring(0, 1) == "#" || colors[this.freezed] || (this.freezed.length > 5 && this.freezed.trim().substring(0, 4) == "rgb(")))
-                    this.color();
-                else {
+                // check for color animation: hash, color name list, 6+ rgb(a) (TODO: opacity) value 
+
+                if (!this.attributeName.match(/^(fill|stroke|stop-color|flood-color|lighting-color)$/)) {
+                    // ?? check and set / balance units
                     var cp = [];
                     var oneVal = this["animVals"][0];
                     var qualified = getUnit(oneVal);
@@ -361,13 +400,13 @@ Animator.prototype = {
         var iteration = parseFloat(this.iteration);
         if (this.repeatCount && this.repeatCount != "indefinite" && (iteration + percent) >= this.repeatCount) {
             if (this.fill == "freeze")
-                this.freezed = this.valueAt(this.repeatCount - iteration);
+                this.final = this.valueAt(this.repeatCount - iteration);
             return this.end();
         }
         if (this.repeatDur && this.repeatDur != "indefinite" && (curTime - this.startTime) >= toMillis(this.repeatDur)) {
             if (this.fill == "freeze") {
                 var div = toMillis(this.repeatDur) / dur;
-                this.freezed = this.valueAt(div - Math.floor(div));
+                this.final = this.valueAt(div - Math.floor(div));
             }
             return this.end();
         }
@@ -528,7 +567,7 @@ Animator.prototype = {
                         for (i = 0; i < this["animVals"].length; ++i)
                             this["animVals"][i] = this.add(this.normalize(curVal), this.normalize(this["animVals"][i]));
                     }
-                    this.freezed = this["animVals"][this["animVals"].length - 1];
+                    this.final = this["animVals"][this["animVals"].length - 1];
                 }
                 this.iterBegin = now;
                 for (i = 0; i < this.repeatIterations.length; ++i) {
@@ -605,7 +644,7 @@ Animator.prototype = {
      * Freezes the attribute value to the ending value.
      */
     freeze: function () {
-        this.step(this.freezed);
+        this.step(this.final);
     },
 
     /**
@@ -693,8 +732,8 @@ Animator.prototype = {
         };
         this.normalize = function (value) {
             var rgb = toRGB(value);
-            if (rgb === null)
-                return toRGB(propDefaults[this.attributeName]);
+            //    if (rgb === null)
+            //        return toRGB(propDefaults[this.attributeName]);
             return rgb;
         };
         this.add = function (a, b) {
@@ -1164,7 +1203,37 @@ function decompose(matrix, type) {
  * into an [r,g,b] array.
  */
 function toRGB(color) {
+    // ?? RGBA ??
+    // check for color name here
+    // getstyle / getcomputedstyle
     var rgb = [];
+
+    // check for named color first - process returned rgb
+    if (typeof color !== "string") {
+        // ? already normalised
+        console.log("Error: in function toRGB, string expected");
+        return color;
+    }
+
+    if (color.substring(0, 3) !== "rgb" && color.charAt(0) !== "#") {
+        if (getComputedStyle !== 'undefined') {
+            // style must be assigned to live element and be a CSS value ie fill does not work
+            var g_color = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            // ? use timestamp to ensure id is unique
+            g_color.setAttribute("id", "smil-ie-g_colour");
+            document.documentElement.appendChild(g_color);
+            g_color = document.documentElement.getElementById("smil-ie-g_colour");
+            g_color.style.color = color;
+            color = getComputedStyle(g_color, null).getPropertyValue("color");
+        }
+        // ? ie8 - doesn't suport getComputedStyle but does not natively support SVG
+        // else {
+        //     g_color = this.attributeName.currentStyle["color"];
+        //    color = rgb;
+    }
+
+
+    // RGB color
     if (color.substring(0, 3) == "rgb") {
         color = color.replace(/ /g, "");
         color = color.replace("rgb(", "");
@@ -1178,9 +1247,12 @@ function toRGB(color) {
                 rgb[i] = parseInt(rgb[i], 10);
         }
         return rgb;
-    } else if (color.charAt(0) == "#") {
+    }
+
+    // HEX color
+    else if (color.charAt(0) == "#") {
+
         color = color.trim();
-        // colour in hex value		
         if (color.length == 7) {
             rgb[0] = parseInt(color.substring(1, 3), 16);
             rgb[1] = parseInt(color.substring(3, 5), 16);
@@ -1194,10 +1266,9 @@ function toRGB(color) {
             rgb[2] = parseInt(rgb[2] + rgb[2], 16);
         }
         return rgb;
-    } else {
-        return colors[color];
     }
 }
+
 
 
 function createPath(d) {
@@ -1231,155 +1302,7 @@ function getUnit(str) {
     return [str, null];
 }
 
-var colors = {
-    aliceblue: [240, 248, 255],
-    antiquewhite: [250, 235, 215],
-    aqua: [0, 255, 255],
-    aquamarine: [127, 255, 212],
-    azure: [240, 255, 255],
-    beige: [245, 245, 220],
-    bisque: [255, 228, 196],
-    black: [0, 0, 0],
-    blanchedalmond: [255, 235, 205],
-    blue: [0, 0, 255],
-    blueviolet: [138, 43, 226],
-    brown: [165, 42, 42],
-    burlywood: [222, 184, 135],
-    cadetblue: [95, 158, 160],
-    chartreuse: [127, 255, 0],
-    chocolate: [210, 105, 30],
-    coral: [255, 127, 80],
-    cornflowerblue: [100, 149, 237],
-    cornsilk: [255, 248, 220],
-    crimson: [220, 20, 60],
-    cyan: [0, 255, 255],
-    darkblue: [0, 0, 139],
-    darkcyan: [0, 139, 139],
-    darkgoldenrod: [184, 134, 11],
-    darkgray: [169, 169, 169],
-    darkgreen: [0, 100, 0],
-    darkgrey: [169, 169, 169],
-    darkkhaki: [189, 183, 107],
-    darkmagenta: [139, 0, 139],
-    darkolivegreen: [85, 107, 47],
-    darkorange: [255, 140, 0],
-    darkorchid: [153, 50, 204],
-    darkred: [139, 0, 0],
-    darksalmon: [233, 150, 122],
-    darkseagreen: [143, 188, 143],
-    darkslateblue: [72, 61, 139],
-    darkslategray: [47, 79, 79],
-    darkslategrey: [47, 79, 79],
-    darkturquoise: [0, 206, 209],
-    darkviolet: [148, 0, 211],
-    deeppink: [255, 20, 147],
-    deepskyblue: [0, 191, 255],
-    dimgray: [105, 105, 105],
-    dimgrey: [105, 105, 105],
-    dodgerblue: [30, 144, 255],
-    firebrick: [178, 34, 34],
-    floralwhite: [255, 250, 240],
-    forestgreen: [34, 139, 34],
-    fuchsia: [255, 0, 255],
-    gainsboro: [220, 220, 220],
-    ghostwhite: [248, 248, 255],
-    gold: [255, 215, 0],
-    goldenrod: [218, 165, 32],
-    gray: [128, 128, 128],
-    grey: [128, 128, 128],
-    green: [0, 128, 0],
-    greenyellow: [173, 255, 47],
-    honeydew: [240, 255, 240],
-    hotpink: [255, 105, 180],
-    indianred: [205, 92, 92],
-    indigo: [75, 0, 130],
-    ivory: [255, 255, 240],
-    khaki: [240, 230, 140],
-    lavender: [230, 230, 250],
-    lavenderblush: [255, 240, 245],
-    lawngreen: [124, 252, 0],
-    lemonchiffon: [255, 250, 205],
-    lightblue: [173, 216, 230],
-    lightcoral: [240, 128, 128],
-    lightcyan: [224, 255, 255],
-    lightgoldenrodyellow: [250, 250, 210],
-    lightgray: [211, 211, 211],
-    lightgreen: [144, 238, 144],
-    lightgrey: [211, 211, 211],
-    lightpink: [255, 182, 193],
-    lightsalmon: [255, 160, 122],
-    lightseagreen: [32, 178, 170],
-    lightskyblue: [135, 206, 250],
-    lightslategray: [119, 136, 153],
-    lightslategrey: [119, 136, 153],
-    lightsteelblue: [176, 196, 222],
-    lightyellow: [255, 255, 224],
-    lime: [0, 255, 0],
-    limegreen: [50, 205, 50],
-    linen: [250, 240, 230],
-    magenta: [255, 0, 255],
-    maroon: [128, 0, 0],
-    mediumaquamarine: [102, 205, 170],
-    mediumblue: [0, 0, 205],
-    mediumorchid: [186, 85, 211],
-    mediumpurple: [147, 112, 219],
-    mediumseagreen: [60, 179, 113],
-    mediumslateblue: [123, 104, 238],
-    mediumspringgreen: [0, 250, 154],
-    mediumturquoise: [72, 209, 204],
-    mediumvioletred: [199, 21, 133],
-    midnightblue: [25, 25, 112],
-    mintcream: [245, 255, 250],
-    mistyrose: [255, 228, 225],
-    moccasin: [255, 228, 181],
-    navajowhite: [255, 222, 173],
-    navy: [0, 0, 128],
-    oldlace: [253, 245, 230],
-    olive: [128, 128, 0],
-    olivedrab: [107, 142, 35],
-    orange: [255, 165, 0],
-    orangered: [255, 69, 0],
-    orchid: [218, 112, 214],
-    palegoldenrod: [238, 232, 170],
-    palegreen: [152, 251, 152],
-    paleturquoise: [175, 238, 238],
-    palevioletred: [219, 112, 147],
-    papayawhip: [255, 239, 213],
-    peachpuff: [255, 218, 185],
-    peru: [205, 133, 63],
-    pink: [255, 192, 203],
-    plum: [221, 160, 221],
-    powderblue: [176, 224, 230],
-    purple: [128, 0, 128],
-    red: [255, 0, 0],
-    rosybrown: [188, 143, 143],
-    royalblue: [65, 105, 225],
-    saddlebrown: [139, 69, 19],
-    salmon: [250, 128, 114],
-    sandybrown: [244, 164, 96],
-    seagreen: [46, 139, 87],
-    seashell: [255, 245, 238],
-    sienna: [160, 82, 45],
-    silver: [192, 192, 192],
-    skyblue: [135, 206, 235],
-    slateblue: [106, 90, 205],
-    slategray: [112, 128, 144],
-    slategrey: [112, 128, 144],
-    snow: [255, 250, 250],
-    springgreen: [0, 255, 127],
-    steelblue: [70, 130, 180],
-    tan: [210, 180, 140],
-    teal: [0, 128, 128],
-    thistle: [216, 191, 216],
-    tomato: [255, 99, 71],
-    turquoise: [64, 224, 208],
-    violet: [238, 130, 238],
-    wheat: [245, 222, 179],
-    white: [255, 255, 255],
-    whitesmoke: [245, 245, 245],
-    yellow: [255, 255, 0],
-    yellowgreen: [154, 205, 50]
-};
+
 
 var propDefaults = {
     font: "see individual properties",
