@@ -331,8 +331,9 @@ Animator.prototype = {
             alert("no inital value!");
             //   initVal = getPropertyDefault[this.attributeName];}
         }
-
-        if (this.attributeName.match(/^(fill|stroke|stop-color|flood-color|lighting-color)$/)) {
+        
+        // check for color animation: hash, color name list, 6+ rgb(a) (TODO: opacity) value
+        if ( this.attributeName !== null &&  this.attributeName.match(/^(fill|stroke|stop-color|flood-color|lighting-color)$/)) {
             /**  set normalisation routine for color values
              properties that take colour values ‘fill’, ‘stroke’, 
              ‘stop-color’, ‘flood-color’, ‘lighting-color’
@@ -376,9 +377,10 @@ Animator.prototype = {
             this.final = this["animVals"][this["animVals"].length - 1];
 
             if (this["animVals"][0]) {
-                // check for color animation: hash, color name list, 6+ rgb(a) (TODO: opacity) value 
-
-                if (!this.attributeName.match(/^(fill|stroke|stop-color|flood-color|lighting-color)$/)) {
+                 
+                // not a color animation
+                // null for animate motion with no path data ie translation
+                if (this.attributeName !== null && !this.attributeName.match(/^(fill|stroke|stop-color|flood-color|lighting-color)$/)) {
                     // ?? check and set / balance units
                     var cp = [];
                     var oneVal = this["animVals"][0];
