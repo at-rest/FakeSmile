@@ -240,12 +240,34 @@ Animator.prototype = {
      * Remembers the initial value of the animated attribute.
      * This function is overridden.
      */
-    getCurVal: function () {
-        if (this.attributeType == "CSS") {
+    getCurVal: function (initial) {
+        /**
+         test against style method for CSS property
+         ?? XML vs CSS attribute type is not critical
+         http://lists.w3.org/Archives/Public/www-svg/2010Jan/0066.html
+        
+         In an HTML5 document namespaces are not supported
+         https://developer.mozilla.org/en-US/docs/Web/API/Element/getAttributeNS
+         Use getAttribute: preserve getAttributeNS for XML documents
+         
+        style populates when attribute defined in <style> tag
+        is this still useful?
+       { var CurVal = this.target.style.getPropertyValue(this.attributeName);
+        if (this.attributeType == "CSS") }
+        
+        */
+
+        var CurVal = this.target.getAttribute(this.attributeName);
+
+        if (CurVal) {
             // should use this.target.getPresentationAttribute instead
             // march 2015: getPresentationAttribute is deprecated
             // getPropertyValue for >ie9
-            return this.target.style.getPropertyValue(this.attributeName);
+            // getPropertyValue for syle only (not ordinarily populated)
+            // return this.target.style.getPropertyValue(this.attributeName);
+
+            return CurVal;
+
         } else {
             //var animAtt = this.target[this.attributeName];
             //if (animAtt && animAtt["animVal"])
@@ -294,14 +316,21 @@ Animator.prototype = {
         this.running = true;
         var initVal = this.getCurVal();
         this.realInitVal = initVal;
+
         // TODO
         // I should get the Inherited value here (getPresentationAttribute is not supported)
         //~~~
         // query element for default value
 
-        if (!initVal && propDefaults[this.attributeName]){
-            initVal = propDefaults[this.attributeName];}
-          //  initVal = getDefault[this.attributeName];}
+        // ?? getCurVal fetches DOM attribut value. when will it fail? 
+        // removed
+        //if (!initVal && propDefaults[this.attributeName]){
+        //   initVal = propDefaults[this.attributeName];}
+        if (!initVal) {
+            // initVal = propDefaults[this.attributeName];}
+            alert("no inital value!");
+            //   initVal = getPropertyDefault[this.attributeName];}
+        }
 
         if (this.attributeName.match(/^(fill|stroke|stop-color|flood-color|lighting-color)$/)) {
             /**  set normalisation routine for color values
@@ -543,14 +572,19 @@ Animator.prototype = {
         var attributeType = this.attributeType;
         if (attributeType == "CSS") {
             // workaround a Gecko and WebKit bug
-           // if (attributeName == "font-size" && !isNaN(value))
-           //     value += "px";
-            this.target.style.setProperty(this.attributeName, value, "");
+            // if (attributeName == "font-size" && !isNaN(value))
+            //     value += "px";
+            //    this.target.style.setProperty(this.attributeName, value, "");
+
+            // most properties are CSS: style does not write to svg unless stylesheet attached 
+            this.target.setAttribute(attributeName, value);
+
         } else {
             //var animAtt = this.target[attributeName];
             //if (animAtt && animAtt["animVal"])
             //	animAtt["animVal"].value = value;
             //else
+            // XML value
             this.target.setAttributeNS(this.namespace, attributeName, value);
         }
     },
@@ -582,8 +616,8 @@ Animator.prototype = {
                         this["animVals"][1] = this.add(curVal, this.by);
                     } else {
                         for (i = 0; i < this["animVals"].length; ++i)
-                         //   this["animVals"][i] = this.add(this.normalize(curVal), this.normalize(this["animVals"][i]));
-                        this["animVals"][i] = this.add(curVal, this["animVals"][i]);
+                        //   this["animVals"][i] = this.add(this.normalize(curVal), this.normalize(this["animVals"][i]));
+                            this["animVals"][i] = this.add(curVal, this["animVals"][i]);
                     }
                     this.final = this["animVals"][this["animVals"].length - 1];
                 }
@@ -633,7 +667,7 @@ Animator.prototype = {
             this.freeze();
         } else {
             this.stop();
-         //   this.writeVal(this.realInitVal);
+            //   this.writeVal(this.realInitVal);
             this.writeVal(this.realInitVal);
             kept = false;
         }
@@ -825,15 +859,39 @@ function Animator(node_animation, target, index) {
     node_animation.targetElement = target;
     this.attributeType = node_animation.getAttribute("attributeType");
     this.attributeName = node_animation.getAttribute("attributeName");
+
+    /**
+        attributeType not specified, default stands for "auto"
+         "The implementation must first search through the list of CSS properties for a matching property name"
+         http://www.w3.org/TR/SVG11/animate.html#AttributeTypeAttribute
+         change implementation to avoid propDefaults list
+       if (propDefaults[this.attributeName] && this.target.style.getPropertyValue(this.attributeName))
+    
+        Note that all SVG presentation attributes can be used as CSS properties.
+        https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute
+    
+       ?? XML vs CSS attribute type is not critical
+       http://lists.w3.org/Archives/Public/www-svg/2010Jan/0066.html
+        REMOVED:
+      {if (this.target.style.getPropertyValue(this.attributeName))
+        this.attributeType = "CSS";
+      else
+        this.attributeType = "XML";}
+       
+       */
+    
+    // attributeType not set in SVG document: default stands for "auto"
     if (this.attributeType != "CSS" && this.attributeType != "XML") {
-        // attributeType not specified, default stands for "auto"
-        // "The implementation must first search through the list of CSS properties for a matching property name"
-        // http://www.w3.org/TR/SVG11/animate.html#AttributeTypeAttribute
-        if (propDefaults[this.attributeName] && this.target.style.getPropertyValue(this.attributeName))
+        // use any style list
+        // hasOwnProperty not working
+        // getOwnPropertyNames not working
+
+        if ((this.attributeName in this.target.style))
             this.attributeType = "CSS";
-        else
-            this.attributeType = "XML";
+        else this.attributeType = "XML";
+
     }
+
     if (this.attributeType == "XML" && this.attributeName) {
         this.namespace = null;
         var chColon = this.attributeName.indexOf(":");
@@ -951,7 +1009,7 @@ function Animator(node_animation, target, index) {
         this.isInterpolable = function (from, to) {
             return true;
         };
-        this.getCurVal = function () {
+        this.getCurVal = function (animateMotion) {
             var curTrans = this["target"]["transform"];
             if (curTrans && curTrans["animVal"]["numberOfItems"] > 0) {
                 var transList = curTrans["animVal"];
@@ -996,7 +1054,7 @@ function Animator(node_animation, target, index) {
             };
         }
         this.writeVal = function (value) {
-          // ?? test - to uncomment:  var attributeName = this.attributeName;
+            // ?? test - to uncomment:  var attributeName = this.attributeName;
             value = "translate(" + value + ")";
             this.target.setAttribute("transform", value);
         };
@@ -1006,7 +1064,7 @@ function Animator(node_animation, target, index) {
         this.isInterpolable = function (from, to) {
             return true;
         };
-        this.getCurVal = function () {
+        this.getCurVal = function (animateTransform) {
             var type = this.type;
             var curTrans = this.target.transform;
             if (curTrans && curTrans["animVal"]["numberOfItems"] > 0) {
@@ -1087,7 +1145,7 @@ function Animator(node_animation, target, index) {
         }
 
         this.writeVal = function (value) {
-           // test - var attributeName = this.attributeName;
+            // test - var attributeName = this.attributeName;
             value = this.type + "(" + value + ")";
             this.target.setAttribute(this.attributeName, value);
         };
@@ -1235,14 +1293,15 @@ function toRGB(color) {
     }
 
     if (color.substring(0, 3) !== "rgb" && color.charAt(0) !== "#") {
-        
+
         var get_color = document.documentElement.getElementById("smil-ie-g_colour");
         if (get_color === null) {
             get_color = document.createElementNS("http://www.w3.org/2000/svg", "g");
-                // ? use timestamp to ensure id is unique
-                get_color.setAttribute("id", "smil-ie-g_colour");
-                document.documentElement.appendChild(get_color);
-                get_color = document.documentElement.getElementById("smil-ie-g_colour");}
+            // ? use timestamp to ensure id is unique
+            get_color.setAttribute("id", "smil-ie-g_colour");
+            document.documentElement.appendChild(get_color);
+            get_color = document.documentElement.getElementById("smil-ie-g_colour");
+        }
 
         if (getComputedStyle !== 'undefined') {
             // style must be assigned to live element and be a CSS value ie fill does not work
@@ -1293,8 +1352,23 @@ function toRGB(color) {
 }
 
 
-function getDefault (attribute){
-//var default = 
+function getPropertyDefault(element) {
+    /**
+            var get_color = document.documentElement.getElementById("smil-ie-g_colour");
+        if (get_color === null) {
+            get_color = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                // ? use timestamp to ensure id is unique
+                get_color.setAttribute("id", "smil-ie-g_colour");
+                document.documentElement.appendChild(get_color);
+                get_color = document.documentElement.getElementById("smil-ie-g_colour");}
+
+        if (getComputedStyle !== 'undefined') {
+            // style must be assigned to live element and be a CSS value ie fill does not work
+            get_color.style.color = color;
+            color = getComputedStyle(get_color, null).getPropertyValue("color");
+    */
+
+    //var default = 
 }
 
 
@@ -1473,3 +1547,6 @@ try {
     // (but that's not an issue as most popular versions, ASV3 and ASV6 beta, both support SMIL)
     window.addEventListener("load", initSMIL, false);
 } catch (exc) {}
+
+// TODO: Indexof not suported in IE <9 
+// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/indexOf#Polyfill
