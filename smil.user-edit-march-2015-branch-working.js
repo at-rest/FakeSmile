@@ -23,7 +23,7 @@ Copyright 2008 David Leunen
 Copyright 2012 Helder Magalhaes
 Copyright 2014 Trevor Rees
 */
-
+// TODO: fill-rule
 /**
  * Milliseconds Per Frame - relation between animation smoothness and resources usage:
  * 83 for ~12fps (standard quality web animation; low CPU usage; slightly jumpy; recommended for discrete or slow-motion animations);
@@ -51,12 +51,6 @@ var animators = []; // array of all animations each represented by an Animator o
 // var id2anim = {}; // id -> animation elements (workaround a Gecko bug)
 var runningAnimation = []; // array of running animators
 var timeZero;
-
-// Change notes: 28/03/2015 
-//  color property on animator determined by element attribute eg fill
-// .freezed > .final ?? still to determine impact
-// observation: normalize appears to act on every calculation - better to normalize start and finish only?
-// ... except where necessary
 
 /**
  * If declarative animations are not supported,
@@ -97,16 +91,17 @@ function smile(document) {
     var node_animations = document.querySelectorAll("animate , animateMotion , animateTransform , animateColor , set");
     var i; // for loop iterator
     var l; // array length
+    var i2,l2; // targets length
 
     for (i = 0, l = node_animations.length; i < l; ++i) {
         var targets = getTarget(node_animations[i]);
         // elAnimators: local array
         var elAnimators = [];
-        for (var index = 0; index < targets.length; ++index) {
-            var target = targets[index];
-            var animator = new Animator(node_animations[i], target, index);
+        for (i2 = 0, l2=targets.length; i2 < l2; ++i2) {
+            var target = targets[i2];
+            var animator = new Animator(node_animations[i], target, i2);
             animators.push(animator);
-            elAnimators[index] = animator;
+            elAnimators[i2] = animator;
         }
         // write array of animator instances (Animator object) to list of document animations
         // replaces animation.animators = elAnimators; 
@@ -194,7 +189,7 @@ Animator.prototype = {
     schedule: function (timeValueList, func) {
         var me = this; // I do that because if I use "this", the addEventListener understands the event source
         var timeValues = timeValueList.split(";");
-        for (var i = 0; i < timeValues.length; ++i) {
+        for (var i = 0, len=timeValues.length; i < len; ++i) {
             var time = timeValues[i].trim();
             if (time.length > 11 && time.substring(0, 10) == "wallclock(") {
                 var wallclock = new Date();
@@ -219,11 +214,12 @@ Animator.prototype = {
                     var id = time.substring(0, io);
                     if (id.indexOf("index(") === 0)
                         id = id.substring(6, id.length - 1) + this.index;
-                    elements = getEventTargetsById(id, this.anim);
+                    // this.anim?
+                    elements = getEventTargetsById(id, this.animation);
                 }
                 var event = time.substring(io + 1);
                 var call = funk(func, me, offset);
-                for (var j = 0; j < elements.length; ++j) {
+                for (var j = 0, l2=elements.length ; j < l2; ++j) {
                     var element = elements[j];
                     if (element === null)
                         continue;
@@ -311,9 +307,9 @@ Animator.prototype = {
             if (this.startTime < timeZero)
                 return;
         }
-        // ? Remove this animation from the running array
         this.stop();
         this.running = true;
+        // initail value as set in element definition: may differ to from value
         var initVal = this.getCurVal();
         this.realInitVal = initVal;
 
@@ -326,12 +322,12 @@ Animator.prototype = {
         // removed
         //if (!initVal && propDefaults[this.attributeName]){
         //   initVal = propDefaults[this.attributeName];}
-        if (!initVal) {
+       // if (!initVal) {
             // initVal = propDefaults[this.attributeName];}
-            alert("no inital value!");
+        //    alert("no inital value!");
             //   initVal = getPropertyDefault[this.attributeName];}
-        }
-        
+        //}
+
         // check for color animation: hash, color name list, 6+ rgb(a) (TODO: opacity) value
         if ( this.attributeName !== null &&  this.attributeName.match(/^(fill|stroke|stop-color|flood-color|lighting-color)$/)) {
             /**  set normalisation routine for color values
@@ -346,7 +342,6 @@ Animator.prototype = {
 
         // SET
         if (this.animation.nodeName == "set")
-        // set accepts only single final value
             this.writeVal(this.normalize(this.to));
         this.iteration = 0;
         // VALUES
@@ -374,10 +369,10 @@ Animator.prototype = {
         }
         // Final position
         if (this["animVals"][this["animVals"].length - 1]) {
-            this.final = this["animVals"][this["animVals"].length - 1];
+            this.finalVal = this["animVals"][this["animVals"].length - 1];
 
             if (this["animVals"][0]) {
-                 
+                
                 // not a color animation
                 // null for animate motion with no path data ie translation
                 if (this.attributeName !== null && !this.attributeName.match(/^(fill|stroke|stop-color|flood-color|lighting-color)$/)) {
@@ -431,14 +426,16 @@ Animator.prototype = {
      */
     f: function (curTime) {
         var animation = this.animation;
-
+        
+        // no duration for indefinite animation 
         var dur = this.computedDur;
         if (isNaN(dur))
             return true;
 
-        var beginTime = this.iterBegin;
+        // var beginTime = this.iterBegin;
 
-        var diff = curTime - beginTime;
+        //var diff = curTime - beginTime;
+        var diff = curTime - this.iterBegin;
         var percent = diff / dur;
         if (percent >= 1)
             return this.end();
@@ -446,13 +443,13 @@ Animator.prototype = {
         var iteration = parseFloat(this.iteration);
         if (this.repeatCount && this.repeatCount != "indefinite" && (iteration + percent) >= this.repeatCount) {
             if (this.fill == "freeze")
-                this.final = this.valueAt(this.repeatCount - iteration);
+                this.finalVal = this.valueAt(this.repeatCount - iteration);
             return this.end();
         }
         if (this.repeatDur && this.repeatDur != "indefinite" && (curTime - this.startTime) >= toMillis(this.repeatDur)) {
             if (this.fill == "freeze") {
                 var div = toMillis(this.repeatDur) / dur;
-                this.final = this.valueAt(div - Math.floor(div));
+                this.finalVal = this.valueAt(div - Math.floor(div));
             }
             return this.end();
         }
@@ -489,18 +486,26 @@ Animator.prototype = {
             return tValues[tValues.length - 1];
         if (this.calcMode == "discrete" || !this.isInterpolable(tValues[0], tValues[1])) {
             if (this.keyTimes) {
-                for (i = 1; i < this.keyTimes.length; ++i)
+                for (i = 1, len=this.keyTimes.length ; i < len ; ++i)
                     if (this.keyTimes[i] > percent)
                         return tValues[i - 1];
                 return tValues[tValues.length - 1];
             }
             parts = tValues.length;
             var div = Math.floor(percent * parts);
-            return tValues[div];
+            
+            // need to convert color value back to rgb(r,g,b) format
+            if (this.attributeName !== null && !this.attributeName.match(/^(fill|stroke|stop-color|flood-color|lighting-color)$/)) {
+            
+            return tValues[div];           
+            
+            }
+            else { return this.interpolate(tValues[div], tValues[div], 1);  }
+            
         } else {
             var index;
             if (this.keyTimes) {
-                for (i = 1; i < this.keyTimes.length; ++i)
+                for (i = 1, len = this.keyTimes.length ; i < len ; ++i)
                     if (this.keyTimes[i] > percent) {
                         index = i - 1;
                         var t1 = this.keyTimes[index];
@@ -545,28 +550,30 @@ Animator.prototype = {
      * Performs the interpolation.
      * This function is overridden.
      */
-    interpolate: function (from, to, percent) {
-        if (!this.isInterpolable(from, to)) {
+    interpolate: function (PrototypeFrom, to, percent) {
+        if (!this.isInterpolable(PrototypeFrom, to)) {
             if (percent < 0.5)
-                return from;
+                return PrototypeFrom;
             else
                 return to;
         }
-        if (from.trim().indexOf(" ") != -1) {
-            var tfrom = from.split(" ");
+        if (PrototypeFrom.trim().indexOf(" ") != -1) {
+            var tfrom = PrototypeFrom.split(" ");
             var tto = to.split(" ");
             var ret = [];
             for (var i = 0; i < tto.length; ++i)
                 ret[i] = parseFloat(tfrom[i]) + ((tto[i] - tfrom[i]) * percent);
             return ret.join(" ");
         }
-        return parseFloat(from) + ((to - from) * percent);
+        return parseFloat(PrototypeFrom) + ((to - PrototypeFrom) * percent);
     },
 
     /**
      * Apply a value to the attribute the animator is linked to.
      * This function is overridden.
      */
+    // was should still be step
+    // step : function(value)
     writeVal: function (value) {
         if (this.unit)
             value += this.unit;
@@ -597,6 +604,12 @@ Animator.prototype = {
      */
     end: function () {
         var i = 0;
+        /**
+
+         http://www.w3.org/TR/2001/REC-smil-animation-20010904/#RepeatDurAttribute
+         http://www.w3.org/TR/2001/REC-smil-animation-20010904/#ComputingActiveDur
+        */
+        
         if (!this.repeatCount && !this.repeatDur)
             return this.finish();
         else {
@@ -609,8 +622,12 @@ Animator.prototype = {
             else {
                 if (this.accumulate == "sum") {
                     var curVal = this.getCurVal();
-                    if (!curVal && propDefaults[this.attributeName])
-                        curVal = propDefaults[this.attributeName];
+                    // ?? is there ever no CurVal 
+                    // test with alert on SVG testsuite
+                    // if (!curVal && propDefaults[this.attributeName])
+                        if (!curVal)
+                            alert("No current value");
+                      //  curVal = propDefaults[this.attributeName];
 
                     if (this.by && !this.from) {
                         this["animVals"][0] = curVal;
@@ -621,7 +638,7 @@ Animator.prototype = {
                         //   this["animVals"][i] = this.add(this.normalize(curVal), this.normalize(this["animVals"][i]));
                             this["animVals"][i] = this.add(curVal, this["animVals"][i]);
                     }
-                    this.final = this["animVals"][this["animVals"].length - 1];
+                    this.finalVal = this["animVals"][this["animVals"].length - 1];
                 }
                 this.iterBegin = now;
                 for (i = 0; i < this.repeatIterations.length; ++i) {
@@ -667,6 +684,8 @@ Animator.prototype = {
         var kept = true;
         if (fill == "freeze") {
             this.freeze();
+            // test: stop animation after freeze > impact ??
+            this.stop();
         } else {
             this.stop();
             //   this.writeVal(this.realInitVal);
@@ -699,7 +718,7 @@ Animator.prototype = {
      * Freezes the attribute value to the ending value.
      */
     freeze: function () {
-        this.writeVal(this.final);
+        this.writeVal(this.finalVal);
     },
 
     /**
@@ -762,9 +781,9 @@ Animator.prototype = {
         this.isInterpolable = function (from, to) {
             return true;
         };
-        this.interpolate = function (from, to, percent) {
-            var x = from[0] + ((to[0] - from[0]) * percent);
-            var y = from[1] + ((to[1] - from[1]) * percent);
+        this.interpolate = function (TranslationFrom, to, percent) {
+            var x = TranslationFrom[0] + ((to[0] - TranslationFrom[0]) * percent);
+            var y = TranslationFrom[1] + ((to[1] - TranslationFrom[1]) * percent);
             return x + "," + y;
         };
     },
@@ -778,10 +797,10 @@ Animator.prototype = {
         this.isInterpolable = function (from, to) {
             return true;
         };
-        this.interpolate = function (from, to, percent) {
-            var r = Math.round(from[0] + ((to[0] - from[0]) * percent));
-            var g = Math.round(from[1] + ((to[1] - from[1]) * percent));
-            var b = Math.round(from[2] + ((to[2] - from[2]) * percent));
+        this.interpolate = function (ColorFrom, to, percent) {
+            var r = Math.round(ColorFrom[0] + ((to[0] - ColorFrom[0]) * percent));
+            var g = Math.round(ColorFrom[1] + ((to[1] - ColorFrom[1]) * percent));
+            var b = Math.round(ColorFrom[2] + ((to[2] - ColorFrom[2]) * percent));
             var val = "rgb(" + r + "," + g + "," + b + ")";
             return val;
         };
@@ -803,9 +822,9 @@ Animator.prototype = {
         this.isInterpolable = function (from, to) {
             return true;
         };
-        this.interpolate = function (from, to, percent) {
+        this.interpolate = function (PathFrom, to, percent) {
             var path = "";
-            var listFrom = from.myNormalizedPathSegList;
+            var listFrom = PathFrom.myNormalizedPathSegList;
             var listTo = to.myNormalizedPathSegList;
             var segFrom, segTo, typeFrom, typeTo;
             for (var i = 0; i < listFrom["numberOfItems"] && i < listTo["numberOfItems"]; ++i) {
@@ -861,6 +880,7 @@ function Animator(node_animation, target, index) {
     node_animation.targetElement = target;
     this.attributeType = node_animation.getAttribute("attributeType");
     this.attributeName = node_animation.getAttribute("attributeName");
+    this.namespace = null;
 
     /**
         attributeType not specified, default stands for "auto"
@@ -918,11 +938,11 @@ function Animator(node_animation, target, index) {
         this.isInterpolable = function (from, to) {
             return true;
         };
-        this.interpolate = function (from, to, percent) {
+        this.interpolate = function (GenericFrom, to, percent) {
             var ret = [];
             var xyFrom, xyTo, x, y;
-            for (var i = 0; i < from.length && i < to.length; ++i) {
-                xyFrom = from[i].split(",");
+            for (var i = 0; i < GenericFrom.length && i < to.length; ++i) {
+                xyFrom = GenericFrom[i].split(",");
                 xyTo = to[i].split(",");
                 x = parseFloat(xyFrom[0]) + ((parseFloat(xyTo[0]) - xyFrom[0]) * percent);
                 y = parseFloat(xyFrom[1]) + ((parseFloat(xyTo[1]) - xyFrom[1]) * percent);
@@ -1066,6 +1086,7 @@ function Animator(node_animation, target, index) {
         this.isInterpolable = function (from, to) {
             return true;
         };
+        // errors in closure advanced
         this.getCurVal = function (animateTransform) {
             var type = this.type;
             var curTrans = this.target.transform;
@@ -1138,10 +1159,10 @@ function Animator(node_animation, target, index) {
                     tvals[i] = this.normalize(tvals[i]).join(",");
                 this.values = tvals.join(";");
             }
-            this.interpolate = function (from, to, percent) {
+            this.interpolate = function (animateTransformFrom, to, percent) {
                 var ret = [];
-                for (var i = 0; i < from.length; ++i)
-                    ret.push(from[i] + ((to[i] - from[i]) * percent));
+                for (i = 0, len=animateTransformFrom.length; i < len ; ++i)
+                    ret.push(animateTransformFrom[i] + ((to[i] - animateTransformFrom[i]) * percent));
                 return ret.join(",");
             };
         }
@@ -1184,11 +1205,14 @@ function Animator(node_animation, target, index) {
 /**
  * Can be called at any time.
  * It's the main loop.
+ 
+ aka running continously
  */
 function animate() {
     var curTime = new Date();
     for (var i = 0, j = runningAnimation.length; i < j; ++i) {
         try {
+            // should animation be running || time now > time end 
             if (!runningAnimation[i].f(curTime)) {
                 // animation was removed therefore we need to adjust both the iterator and the auxiliary variable
                 --i;
@@ -1209,6 +1233,8 @@ function animate() {
     // and then the last values applied after the loop
     // for that, f(t) must return the value, and we must have a map for object(?).attributeType.attributeName -> value
     // then f(t) cannot return false when autostopping -> we must find another mechanism
+
+    return;
 }
 
 
@@ -1370,7 +1396,6 @@ function getPropertyDefault(element) {
             color = getComputedStyle(get_color, null).getPropertyValue("color");
     */
 
-    //var default = 
 }
 
 
@@ -1406,69 +1431,7 @@ function getUnit(str) {
 }
 
 
-
-var propDefaults = {
-    font: "see individual properties",
-    "font-family": "Arial",
-    "font-size": "medium",
-    "font-size-adjust": "none",
-    "font-stretch": "normal",
-    "font-style": "normal",
-    "font-variant": "normal",
-    "font-weight": "normal",
-    direction: "ltr",
-    "letter-spacing": "normal",
-    "text-decoration": "none",
-    "unicode-bidi": "normal",
-    "word-spacing": "normal",
-    clip: "auto",
-    color: "depends on user agent",
-    cursor: "auto",
-    display: "inline",
-    overflow: "hidden",
-    visibility: "visible",
-    "clip-path": "none",
-    "clip-rule": "nonzero",
-    mask: "none",
-    opacity: 1,
-    "enable-background": "accumulate",
-    filter: "none",
-    "flood-color": "black",
-    "flood-opacity": 1,
-    "lighting-color": "white",
-    "stop-color": "black",
-    "stop-opacity": 1,
-    "pointer-events": "visiblePainted",
-    "color-interpolation": "sRGB",
-    "color-interpolation-filters": "linearRGB",
-    "color-profile": "auto",
-    "color-rendering": "auto",
-    fill: "black",
-    "fill-opacity": 1,
-    "fill-rule": "nonzero",
-    "image-rendering": "auto",
-    "marker-end": "none",
-    "marker-mid": "none",
-    "marker-start": "none",
-    "shape-rendering": "auto",
-    stroke: "none",
-    "stroke-dasharray": "none",
-    "stroke-dashoffset": 0,
-    "stroke-linecap": "butt",
-    "stroke-linejoin": "miter",
-    "stroke-miterlimit": 4,
-    "stroke-opacity": 1,
-    "stroke-width": 1,
-    "text-rendering": "auto",
-    "alignment-baseline": 0,
-    "baseline-shift": "baseline",
-    "dominant-baseline": "auto",
-    "glyph-orientation-horizontal": 0,
-    "glyph-orientation-vertical": "auto",
-    kerning: "auto",
-    "text-anchor": "start",
-    "writing-mode": "lr-tb"
-};
+// var propDefaults woz here
 
 // ? colsure ?? what purpose? ? general factory closure generator ?
 
